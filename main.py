@@ -579,7 +579,8 @@ def plot_results(
 ) -> None:
     """Create and save a grouped bar chart comparing the three libraries."""
     n      = len(OPS)
-    x      = np.arange(n)
+    gap    = 1.6          # >1 adds blank space between benchmark groups
+    x      = np.arange(n) * gap
     width  = 0.25
 
     times_pd = [r[0] for r in pandas_res]
