@@ -1,4 +1,4 @@
-# Test de performnce entre Pandas, Polars y DuckDB
+# Test de performance entre Pandas, Polars y DuckDB
 
 ## Motivación
 
