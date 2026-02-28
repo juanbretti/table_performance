@@ -10,4 +10,5 @@ dependencies = [
     "polars>=1.38.1",
     "pyarrow>=19.0.0",
     "psutil>=6.0.0",
+    "matplotlib>=3.9.0",
 ]
