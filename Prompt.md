@@ -18,3 +18,7 @@ Hacer las siguientes operaciones:
 * Hacer un merge entre las dos tablas
 * Hacer un pivot de la tabla merged
 * Guardar la nueva tabla en formato parquet
+
+Varios temas:
+* No creo que estés capturando todo el consumo de memoria. En particular para el caso DuckDB Arrow. Revisa por favor.
+* Agrega un test, de ejecutar una user define function (UDF), que sea la suma de dos columnas numéricas y multiplicado por 3, si es que el producto es superior a 10

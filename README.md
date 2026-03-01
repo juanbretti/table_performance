@@ -41,10 +41,9 @@ Installed RAM	32.0 GB
   Small table: 10,000 rows × 10 cols
 ============================================================================
 
-  Deleted 6 existing parquet file(s):
+  Deleted 5 existing parquet file(s):
     large_table.parquet
     output_duckdb.parquet
-    output_duckdb_without_fetch.parquet
     output_pandas.parquet
     output_polars.parquet
     small_table.parquet
@@ -62,61 +61,65 @@ Installed RAM	32.0 GB
 ────────────────────────────────────────────────────────────────────────────
     Operation                                                 Time    Peak RAM
     ──────────────────────────────────────────────────── ─────────   ─────────
-    Read large parquet                                      0.417 s     1449.0 MiB
-    Filter numeric  (num_1 > 500)                           0.699 s      560.2 MiB
-    Filter text  (text_3 starts with 'a')                   0.383 s      138.0 MiB
-    Filter boolean  (bool_1 == True)                        0.717 s      462.6 MiB
-    Text transform  (upper + first word)                    4.605 s     1664.8 MiB
-    Merge inner join  (on text_1)                           1.462 s      156.1 MiB
-    Pivot  (bool_2 × text_2, mean num_1)                    0.339 s      220.9 MiB
-    Save pivot → output_pandas.parquet                      0.005 s        0.0 MiB
+    Read large parquet                                      0.491 s     1476.0 MiB
+    Filter numeric  (num_1 > 500)                           0.817 s      614.6 MiB
+    Filter text  (text_3 starts with 'a')                   0.422 s       17.3 MiB
+    Filter boolean  (bool_1 == True)                        0.800 s      433.6 MiB
+    Text transform  (upper + first word)                    4.514 s     1674.8 MiB
+    Merge inner join  (on text_1)                           1.546 s      294.6 MiB
+    Pivot  (bool_2 × text_2, mean num_1)                    0.379 s      218.2 MiB
+    Save pivot → output_pandas.parquet                      0.004 s        0.0 MiB
+    UDF  (num_1+num_2)*3 if >10                             1.276 s      567.0 MiB
 
 ────────────────────────────────────────────────────────────────────────────
   POLARS
 ────────────────────────────────────────────────────────────────────────────
     Operation                                                 Time    Peak RAM
     ──────────────────────────────────────────────────── ─────────   ─────────
-    Read large parquet                                      0.159 s     1072.5 MiB
-    Filter numeric  (num_1 > 500)                           0.067 s      242.8 MiB
-    Filter text  (text_3 starts with 'a')                   0.038 s        0.0 MiB
-    Filter boolean  (bool_1 == True)                        0.070 s      404.5 MiB
-    Text transform  (upper + first word)                    0.201 s      302.3 MiB
-    Merge inner join  (on text_1)                           0.321 s     1445.9 MiB
-    Pivot  (bool_2 × text_2, mean num_1)                    0.224 s       92.2 MiB
-    Save pivot → output_polars.parquet                      0.002 s        0.0 MiB
+    Read large parquet                                      0.173 s     1082.2 MiB
+    Filter numeric  (num_1 > 500)                           0.069 s      210.9 MiB
+    Filter text  (text_3 starts with 'a')                   0.035 s        4.4 MiB
+    Filter boolean  (bool_1 == True)                        0.066 s      406.4 MiB
+    Text transform  (upper + first word)                    0.186 s      319.2 MiB
+    Merge inner join  (on text_1)                           0.301 s     1452.7 MiB
+    Pivot  (bool_2 × text_2, mean num_1)                    0.171 s      134.4 MiB
+    Save pivot → output_polars.parquet                      0.002 s        1.5 MiB
+    UDF  (num_1+num_2)*3 if >10                             2.798 s      198.5 MiB
 
 ────────────────────────────────────────────────────────────────────────────
-  DUCKDB
+  DUCKDB (fetchdf)
 ────────────────────────────────────────────────────────────────────────────
     Operation                                                 Time    Peak RAM
     ──────────────────────────────────────────────────── ─────────   ─────────
-    Read large parquet (→ in-memory table)                  1.163 s     1115.8 MiB
-    Filter numeric  (num_1 > 500)                           4.589 s     1664.7 MiB
-    Filter text  (text_3 starts with 'a')                   0.893 s      170.2 MiB
-    Filter boolean  (bool_1 == True)                        4.200 s     1667.0 MiB
-    Text transform  (upper + first word)                    9.024 s     4110.0 MiB
-    Merge inner join  (on text_1)                           0.754 s     1509.7 MiB
-    Pivot  (bool_2 × text_2, mean num_1)                    0.089 s        6.0 MiB
-    Save pivot → output_duckdb.parquet                      0.089 s        3.5 MiB
+    Read large parquet (→ in-memory table)                  0.952 s     1122.8 MiB
+    Filter numeric  (num_1 > 500)                           4.423 s     1668.4 MiB
+    Filter text  (text_3 starts with 'a')                   0.914 s      146.0 MiB
+    Filter boolean  (bool_1 == True)                        4.054 s     1504.8 MiB
+    Text transform  (upper + first word)                    7.823 s     4089.4 MiB
+    Merge inner join  (on text_1)                           0.718 s     1511.4 MiB
+    Pivot  (bool_2 × text_2, mean num_1)                    0.085 s        5.9 MiB
+    Save pivot → output_duckdb.parquet                      0.079 s        4.2 MiB
+    UDF  (num_1+num_2)*3 if >10                             8.130 s     3977.8 MiB
 
 ────────────────────────────────────────────────────────────────────────────
   DUCKDB (NATIVE & ARROW)
 ────────────────────────────────────────────────────────────────────────────
     Operation                                                 Time    Peak RAM
     ──────────────────────────────────────────────────── ─────────   ─────────
-    Read large parquet (→ virtual view)                     0.001 s        0.1 MiB
-    Filter numeric  (num_1 > 500)                           0.030 s       61.2 MiB
-    Filter text  (text_3 starts with 'a')                   0.063 s        2.9 MiB
-    Filter boolean  (bool_1 == True)                        0.035 s        0.0 MiB
-    Text transform  (upper + first word)                    0.037 s        0.1 MiB
-    Merge inner join  (on text_1)                           0.010 s        0.3 MiB
-    Pivot  (bool_2 × text_2, mean num_1)                    0.269 s       18.2 MiB
-    Save pivot → output_duckdb_without_fetch.parquet        0.282 s       13.7 MiB
+    Read large parquet (→ virtual view)                     0.003 s        0.4 MiB
+    Filter numeric  (num_1 > 500)                           0.032 s       61.5 MiB
+    Filter text  (text_3 starts with 'a')                   0.050 s        7.8 MiB
+    Filter boolean  (bool_1 == True)                        0.029 s        0.0 MiB
+    Text transform  (upper + first word)                    0.032 s        0.4 MiB
+    Merge inner join  (on text_1)                           0.009 s        0.0 MiB
+    Pivot  (bool_2 × text_2, mean num_1)                    0.248 s       18.8 MiB
+    Save pivot → output_duckdb_arrow.parquet                0.250 s       14.2 MiB
+    UDF  (num_1+num_2)*3 if >10                             0.032 s       57.0 MiB
 
 ────────────────────────────────────────────────────────────────────────────
   Done.  Output files:
     output_duckdb.parquet  (0.80 KiB)
-    output_duckdb_without_fetch.parquet  (0.80 KiB)
+    output_duckdb_arrow.parquet  (0.80 KiB)
     output_pandas.parquet  (3.57 KiB)
     output_polars.parquet  (1.71 KiB)
 ────────────────────────────────────────────────────────────────────────────
@@ -138,8 +141,9 @@ En orden, recomendaría por performance:
 En orden, recomendaría por simplicidad de uso:
 1. Pandas
 2. Polars
-3. DuckDB exportando a DataFrames
-4. DuckDB exportando a tablas Arrow
+3. DuckDB exportando a tablas Arrow
+4. DuckDB exportando a DataFrames
 
 Nota:
-* DuckDB -en el caso *Arrow*- acumula el trabajo en los pasos baratos y lo ejecuta todo junto en pivot/save
+* DuckDB -en el caso *Arrow*- acumula el trabajo en los pasos baratos y lo ejecuta todo junto en -por ejemplo-, pivot/save.
+* Sobre el consumo de RAM en DuckDB, no estoy seguro que sea completo.

@@ -16,8 +16,8 @@ Tables
       bool_1           bool      (1 boolean)
       text_2 … text_4  str       random text up to 20 chars with spaces
 
-Benchmarked operations (time + peak Python RAM via tracemalloc)
----------------------------------------------------------------
+Benchmarked operations (time + peak RSS delta via psutil)
+---------------------------------------------------------
   1. Read parquet
   2. Filter on numeric column  (num_1 > 500)
   3. Filter on text column     (text_3 starts with 'a')
@@ -26,6 +26,7 @@ Benchmarked operations (time + peak Python RAM via tracemalloc)
   6. Merge large × small       (inner join on text_1)
   7. Pivot merged table        (index=bool_2, columns=text_2, values=num_1, agg=mean)
   8. Save result to parquet
+  9. UDF                       ((num_1 + num_2) * 3, return only if > 10)
 """
 
 import os
@@ -66,7 +67,16 @@ OPS = [
     "Merge join",
     "Pivot",
     "Save parquet",
+    "UDF (sum×3 if >10)",
 ]
+
+
+# ── Shared UDF (used by all four benchmarks) ───────────────────────────────────
+
+def my_udf(a: float, b: float) -> float | None:
+    """Return (a + b) * 3 when the result is > 10, otherwise None (NULL)."""
+    val = (float(a) + float(b)) * 3.0
+    return val if val > 10.0 else None
 
 # ── Measurement helpers ────────────────────────────────────────────────────────
 
@@ -98,6 +108,14 @@ def measure(fn):
     t0     = time.perf_counter()
     result = fn()
     elapsed = time.perf_counter() - t0
+    # Explicit final sample: result is still in scope, so any Arrow/native
+    # buffers it holds are still allocated and reflected in the RSS.
+    try:
+        rss = proc.memory_info().rss
+        if rss > peak_rss[0]:
+            peak_rss[0] = rss
+    except Exception:
+        pass
     stop.set()
     t.join()
 
@@ -277,6 +295,15 @@ def bench_pandas() -> list[tuple[float, float]]:
     _, t, m = measure(lambda: pivot_pdf.to_parquet(out, index=False))
     rec("Save pivot → output_pandas.parquet", t, m)
 
+    # 9. UDF – vectorised Python UDF: (num_1 + num_2) * 3, keep only if > 10
+    def _udf_pandas():
+        a = large_pdf["num_1"].to_numpy()
+        b = large_pdf["num_2"].to_numpy()
+        return large_pdf.assign(udf_result=np.vectorize(my_udf)(a, b))
+
+    _, t, m = measure(_udf_pandas)
+    rec("UDF  (num_1+num_2)*3 if >10", t, m)
+
     return results
 
 
@@ -346,6 +373,20 @@ def bench_polars() -> list[tuple[float, float]]:
     _, t, m = measure(lambda: pivot_pl.write_parquet(out))
     rec("Save pivot → output_polars.parquet", t, m)
 
+    # 9. UDF – map_elements applies a Python UDF element-by-element per row
+    def _udf_polars():
+        return large_pl.with_columns(
+            pl.struct(["num_1", "num_2"])
+            .map_elements(
+                lambda x: my_udf(x["num_1"], x["num_2"]),
+                return_dtype=pl.Float64,
+            )
+            .alias("udf_result")
+        )
+
+    _, t, m = measure(_udf_polars)
+    rec("UDF  (num_1+num_2)*3 if >10", t, m)
+
     return results
 
 
@@ -353,7 +394,7 @@ def bench_polars() -> list[tuple[float, float]]:
 
 def bench_duckdb() -> list[tuple[float, float]]:
     """Return list of (elapsed_s, peak_mib) in OPS order."""
-    _header("DUCKDB")
+    _header("DUCKDB (fetchdf)")
     results: list[tuple[float, float]] = []
 
     def rec(label: str, t: float, m: float) -> None:
@@ -458,13 +499,25 @@ def bench_duckdb() -> list[tuple[float, float]]:
     _, t, m = measure(_save_duckdb)
     rec("Save pivot → output_duckdb.parquet", t, m)
 
+    # 9. UDF – Python scalar UDF registered on the DuckDB connection
+    #    null_handling='special': DuckDB passes NULLs to the UDF and accepts
+    #    NULL return values (needed because my_udf returns None when val <= 10)
+    con.create_function("my_udf_fn", my_udf, [float, float], float,
+                        null_handling="special")
+    _, t, m = measure(
+        lambda: con.execute(
+            "SELECT *, my_udf_fn(num_1, num_2) AS udf_result FROM large_t"
+        ).fetchdf()
+    )
+    rec("UDF  (num_1+num_2)*3 if >10", t, m)
+
     con.close()
     return results
 
 
 # ── DUCKDB benchmark (CORREGIDO Y OPTIMIZADO) ──────────────────────────────────
 
-def bench_duckdb_without_fetch() -> list[tuple[float, float]]:
+def bench_duckdb_arrow() -> list[tuple[float, float]]:
     """Return list of (elapsed_s, peak_mib) in OPS order."""
     _header("DUCKDB (NATIVE & ARROW)")
     results: list[tuple[float, float]] = []
@@ -554,7 +607,7 @@ def bench_duckdb_without_fetch() -> list[tuple[float, float]]:
     rec("Pivot  (bool_2 × text_2, mean num_1)", t, m)
 
     # 8. Save - Escritura directa desde el PIVOT virtual al Parquet
-    out = str(BASE_DIR / "output_duckdb_without_fetch.parquet").replace("\\", "/")
+    out = str(BASE_DIR / "output_duckdb_arrow.parquet").replace("\\", "/")
 
     def _save_duckdb():
         con.execute(
@@ -563,7 +616,17 @@ def bench_duckdb_without_fetch() -> list[tuple[float, float]]:
         )
 
     _, t, m = measure(_save_duckdb)
-    rec("Save pivot → output_duckdb_without_fetch.parquet", t, m)
+    rec("Save pivot → output_duckdb_arrow.parquet", t, m)
+
+    # 9. UDF – same Python scalar UDF, result materialized as Arrow table
+    con.create_function("my_udf_fn", my_udf, [float, float], float,
+                        null_handling="special")
+    _, t, m = measure(
+        lambda: con.execute(
+            "SELECT *, my_udf_fn(num_1, num_2) AS udf_result FROM large_v"
+        ).arrow()
+    )
+    rec("UDF  (num_1+num_2)*3 if >10", t, m)
 
     con.close()
     return results
@@ -575,7 +638,7 @@ def plot_results(
     pandas_res: list[tuple[float, float]],
     polars_res: list[tuple[float, float]],
     duckdb_res: list[tuple[float, float]],
-    duckdb_res_without_fetch: list[tuple[float, float]],
+    duckdb_res_arrow: list[tuple[float, float]],
 ) -> None:
     """Create and save a grouped bar chart comparing the three libraries."""
     n      = len(OPS)
@@ -586,14 +649,14 @@ def plot_results(
     times_pd = [r[0] for r in pandas_res]
     times_pl = [r[0] for r in polars_res]
     times_dk = [r[0] for r in duckdb_res]
-    times_dk_no_fetch = [r[0] for r in duckdb_res_without_fetch]
+    times_dk_arrow = [r[0] for r in duckdb_res_arrow]
 
     mem_pd   = [r[1] for r in pandas_res]
     mem_pl   = [r[1] for r in polars_res]
     mem_dk   = [r[1] for r in duckdb_res]
-    mem_dk_no_fetch = [r[1] for r in duckdb_res_without_fetch]
+    mem_dk_arrow = [r[1] for r in duckdb_res_arrow]
 
-    COLORS = {"pandas": "#4C72B0", "polars": "#8E44AD", "duckdb": "#E67E22", "duckdb_no_fetch": "#D35400"}
+    COLORS = {"pandas": "#4C72B0", "polars": "#8E44AD", "duckdb": "#E67E22", "duckdb_arrow": "#D35400"}
 
     fig, (ax_t, ax_m) = plt.subplots(
         1, 2, figsize=(18, 7), constrained_layout=True
@@ -608,7 +671,7 @@ def plot_results(
     b1 = ax_t.bar(x - 1.5*width, times_pd, width, label="pandas",          color=COLORS["pandas"])
     b2 = ax_t.bar(x - 0.5*width, times_pl, width, label="polars",          color=COLORS["polars"])
     b3 = ax_t.bar(x + 0.5*width, times_dk, width, label="duckdb",          color=COLORS["duckdb"])
-    b4 = ax_t.bar(x + 1.5*width, times_dk_no_fetch, width, label="duckdb (arrow)", color=COLORS["duckdb_no_fetch"])
+    b4 = ax_t.bar(x + 1.5*width, times_dk_arrow, width, label="duckdb (arrow)", color=COLORS["duckdb_arrow"])
     ax_t.set_title("Execution time (seconds)  –  lower is better", fontsize=12)
     ax_t.set_ylabel("seconds")
     ax_t.set_xticks(x)
@@ -631,7 +694,7 @@ def plot_results(
     b4 = ax_m.bar(x - 1.5*width, mem_pd, width, label="pandas",          color=COLORS["pandas"])
     b5 = ax_m.bar(x - 0.5*width, mem_pl, width, label="polars",          color=COLORS["polars"])
     b6 = ax_m.bar(x + 0.5*width, mem_dk, width, label="duckdb",          color=COLORS["duckdb"])
-    b7 = ax_m.bar(x + 1.5*width, mem_dk_no_fetch, width, label="duckdb (arrow)", color=COLORS["duckdb_no_fetch"])
+    b7 = ax_m.bar(x + 1.5*width, mem_dk_arrow, width, label="duckdb (arrow)", color=COLORS["duckdb_arrow"])
     ax_m.set_title("Peak RAM delta (MiB)  –  lower is better", fontsize=12)
     ax_m.set_ylabel("MiB")
     ax_m.set_xticks(x)
@@ -678,7 +741,7 @@ def main() -> None:
     pandas_res = bench_pandas()
     polars_res = bench_polars()
     duckdb_res = bench_duckdb()
-    duckdb_res_without_fetch = bench_duckdb_without_fetch()
+    duckdb_res_arrow = bench_duckdb_arrow()
 
     print("\n" + "─" * 76)
     print("  Done.  Output files:")
@@ -686,7 +749,7 @@ def main() -> None:
         print(f"    {f.name}  ({os.path.getsize(f)/1_024:.2f} KiB)")
     print("─" * 76 + "\n")
 
-    plot_results(pandas_res, polars_res, duckdb_res, duckdb_res_without_fetch)
+    plot_results(pandas_res, polars_res, duckdb_res, duckdb_res_arrow)
 
 
 if __name__ == "__main__":
